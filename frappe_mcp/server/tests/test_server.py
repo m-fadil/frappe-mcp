@@ -42,7 +42,9 @@ def mcp_with_prompts():
     @mcp.prompt()
     def no_args_prompt():
         """A prompt with no arguments."""
-        return [types.PromptMessage(role='user', content=types.TextContent(text='Hello'))]
+        return [
+            types.PromptMessage(role='user', content=types.TextContent(text='Hello'))
+        ]
 
     return mcp
 
@@ -155,7 +157,12 @@ def test_handle_call_tool_with_regular_content(mcp_instance):
 
 
 def _post(mcp, method, params=None, request_id=1):
-    data = {'jsonrpc': '2.0', 'id': request_id, 'method': method, 'params': params or {}}
+    data = {
+        'jsonrpc': '2.0',
+        'id': request_id,
+        'method': method,
+        'params': params or {},
+    }
     request = Request.from_values(
         method='POST',
         content_type='application/json',
@@ -191,7 +198,11 @@ def test_handle_list_prompts_arguments(mcp_with_prompts):
 
 
 def test_handle_get_prompt(mcp_with_prompts):
-    result = _post(mcp_with_prompts, 'prompts/get', {'name': 'summarize', 'arguments': {'topic': 'Python'}})
+    result = _post(
+        mcp_with_prompts,
+        'prompts/get',
+        {'name': 'summarize', 'arguments': {'topic': 'Python'}},
+    )
     messages = result['result']['messages']
     assert len(messages) == 1
     assert messages[0]['role'] == 'user'
@@ -199,7 +210,11 @@ def test_handle_get_prompt(mcp_with_prompts):
 
 
 def test_handle_get_prompt_default_arg(mcp_with_prompts):
-    result = _post(mcp_with_prompts, 'prompts/get', {'name': 'summarize', 'arguments': {'topic': 'Go', 'language': 'french'}})
+    result = _post(
+        mcp_with_prompts,
+        'prompts/get',
+        {'name': 'summarize', 'arguments': {'topic': 'Go', 'language': 'french'}},
+    )
     assert 'french' in result['result']['messages'][0]['content']['text']
 
 

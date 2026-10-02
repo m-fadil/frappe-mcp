@@ -13,12 +13,12 @@ def test_simple_function():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "integer"},
-            "b": {"type": "string"},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'integer'},
+            'b': {'type': 'string'},
         },
-        "required": ["a", "b"],
+        'required': ['a', 'b'],
     }
     assert get_input_schema(simple_function) == expected_schema
 
@@ -26,17 +26,17 @@ def test_simple_function():
 def test_function_with_optional():
     """Tests a function with optional types and default values."""
 
-    def function_with_optional(a: int | None, b: str = "default") -> None:
+    def function_with_optional(a: int | None, b: str = 'default') -> None:
         """A function with an optional type and a default value."""
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": ["integer", "null"]},
-            "b": {"type": "string"},
+        'type': 'object',
+        'properties': {
+            'a': {'type': ['integer', 'null']},
+            'b': {'type': 'string'},
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(function_with_optional) == expected_schema
 
@@ -49,12 +49,12 @@ def test_function_with_union():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
-            "b": {"anyOf": [{"type": "number"}, {"type": "boolean"}, {"type": "null"}]},
+        'type': 'object',
+        'properties': {
+            'a': {'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
+            'b': {'anyOf': [{'type': 'number'}, {'type': 'boolean'}, {'type': 'null'}]},
         },
-        "required": ["a", "b"],
+        'required': ['a', 'b'],
     }
     assert get_input_schema(function_with_union) == expected_schema
 
@@ -67,12 +67,12 @@ def test_function_with_list():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "array"},
-            "b": {"type": "array", "items": {"type": "integer"}},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'array'},
+            'b': {'type': 'array', 'items': {'type': 'integer'}},
         },
-        "required": ["a", "b"],
+        'required': ['a', 'b'],
     }
     assert get_input_schema(function_with_list) == expected_schema
 
@@ -85,12 +85,12 @@ def test_function_with_dict():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "object"},
-            "b": {"type": "object", "additionalProperties": {"type": "integer"}},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'object'},
+            'b': {'type': 'object', 'additionalProperties': {'type': 'integer'}},
         },
-        "required": ["a", "b"],
+        'required': ['a', 'b'],
     }
     assert get_input_schema(function_with_dict) == expected_schema
 
@@ -103,9 +103,9 @@ def test_function_with_any():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {"a": {}},
-        "required": ["a"],
+        'type': 'object',
+        'properties': {'a': {}},
+        'required': ['a'],
     }
     assert get_input_schema(function_with_any) == expected_schema
 
@@ -118,25 +118,25 @@ def test_function_no_params():
         pass
 
     assert get_input_schema(function_no_params) == {
-        "type": "object",
-        "properties": {},
+        'type': 'object',
+        'properties': {},
     }
 
 
 def test_function_with_forward_ref():
     """Tests a function with forward-referenced string type hints."""
 
-    def function_with_forward_ref(a: "str", b: "int | None") -> None:
+    def function_with_forward_ref(a: 'str', b: 'int | None') -> None:
         """A function with forward-referenced type hints."""
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "string"},
-            "b": {"type": ["integer", "null"]},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'string'},
+            'b': {'type': ['integer', 'null']},
         },
-        "required": ["a", "b"],
+        'required': ['a', 'b'],
     }
     assert get_input_schema(function_with_forward_ref) == expected_schema
 
@@ -154,17 +154,17 @@ def test_complex_function():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "integer"},
-            "b": {"type": ["string", "null"]},
-            "c": {"anyOf": [{"type": "array"}, {"type": "object"}]},
-            "d": {
-                "type": "array",
-                "items": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'integer'},
+            'b': {'type': ['string', 'null']},
+            'c': {'anyOf': [{'type': 'array'}, {'type': 'object'}]},
+            'd': {
+                'type': 'array',
+                'items': {'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
             },
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(complex_function) == expected_schema
 
@@ -177,11 +177,11 @@ def test_function_with_pipe_union():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+        'type': 'object',
+        'properties': {
+            'a': {'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(function_with_pipe_union) == expected_schema
 
@@ -194,11 +194,11 @@ def test_function_with_pipe_optional():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": ["integer", "null"]},
+        'type': 'object',
+        'properties': {
+            'a': {'type': ['integer', 'null']},
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(function_with_pipe_optional) == expected_schema
 
@@ -211,11 +211,11 @@ def test_function_with_new_list_syntax():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "array", "items": {"type": "integer"}},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'array', 'items': {'type': 'integer'}},
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(function_with_new_list_syntax) == expected_schema
 
@@ -228,11 +228,11 @@ def test_function_with_new_dict_syntax():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {"type": "object", "additionalProperties": {"type": "integer"}},
+        'type': 'object',
+        'properties': {
+            'a': {'type': 'object', 'additionalProperties': {'type': 'integer'}},
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(function_with_new_dict_syntax) == expected_schema
 
@@ -245,14 +245,14 @@ def test_function_with_new_complex_syntax():
         pass
 
     expected_schema = {
-        "type": "object",
-        "properties": {
-            "a": {
-                "type": ["array", "null"],
-                "items": {"anyOf": [{"type": "integer"}, {"type": "string"}]},
+        'type': 'object',
+        'properties': {
+            'a': {
+                'type': ['array', 'null'],
+                'items': {'anyOf': [{'type': 'integer'}, {'type': 'string'}]},
             }
         },
-        "required": ["a"],
+        'required': ['a'],
     }
     assert get_input_schema(function_with_new_complex_syntax) == expected_schema
 
@@ -262,16 +262,16 @@ def test_function_with_new_complex_syntax():
 
 def test_get_descriptions_empty_string():
     """Tests get_descriptions with an empty string."""
-    description, args = get_descriptions("")
-    assert description == ""
+    description, args = get_descriptions('')
+    assert description == ''
     assert args == {}
 
 
 def test_get_descriptions_no_args():
     """Tests a docstring with only a description."""
-    docstring = "This is a simple description."
+    docstring = 'This is a simple description.'
     description, args = get_descriptions(docstring)
-    assert description == "This is a simple description."
+    assert description == 'This is a simple description.'
     assert args == {}
 
 
@@ -285,10 +285,10 @@ def test_get_descriptions_with_args():
         param2: The second parameter.
     """
     description, args = get_descriptions(docstring)
-    assert description == "A function with a description."
+    assert description == 'A function with a description.'
     assert args == {
-        "param1": "The first parameter.",
-        "param2": "The second parameter.",
+        'param1': 'The first parameter.',
+        'param2': 'The second parameter.',
     }
 
 
@@ -302,10 +302,10 @@ def test_get_descriptions_with_types_in_args():
         param2 (int, optional): The second parameter.
     """
     description, args = get_descriptions(docstring)
-    assert description == "Another function."
+    assert description == 'Another function.'
     assert args == {
-        "param1": "The first parameter.",
-        "param2": "The second parameter.",
+        'param1': 'The first parameter.',
+        'param2': 'The second parameter.',
     }
 
 
@@ -321,9 +321,9 @@ def test_get_descriptions_multiline_arg_description():
             lines.
     """
     description, args = get_descriptions(docstring)
-    assert description == "A function.\nThat has a multiline description."
+    assert description == 'A function.\nThat has a multiline description.'
     assert args == {
-        "param1": "A parameter with a very long description that spans multiple lines."
+        'param1': 'A parameter with a very long description that spans multiple lines.'
     }
 
 
@@ -332,5 +332,5 @@ def test_get_descriptions_no_description_part():
     docstring = """Args:
         param1: The first parameter."""
     description, args = get_descriptions(docstring)
-    assert description == ""
-    assert args == {"param1": "The first parameter."}
+    assert description == ''
+    assert args == {'param1': 'The first parameter.'}

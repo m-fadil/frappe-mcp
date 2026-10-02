@@ -289,7 +289,9 @@ class MCP:
         try:
             match method:
                 case 'initialize':
-                    result = handlers.handle_initialize(params, self._name or 'frappe-mcp')
+                    result = handlers.handle_initialize(
+                        params, self._name or 'frappe-mcp'
+                    )
                 case 'ping':
                     result = handlers.handle_ping(params)
                 case 'completion/complete':
@@ -324,9 +326,13 @@ class MCP:
         except ValueError as e:
             return handle_invalid(request_id, response, types.INVALID_PARAMS, str(e))
         except NotImplementedError:
-            return handle_invalid(request_id, response, types.METHOD_NOT_FOUND, 'Method not implemented')
+            return handle_invalid(
+                request_id, response, types.METHOD_NOT_FOUND, 'Method not implemented'
+            )
         except Exception as e:
-            return handle_invalid(request_id, response, types.INTERNAL_ERROR, f'Internal error: {e}')
+            return handle_invalid(
+                request_id, response, types.INTERNAL_ERROR, f'Internal error: {e}'
+            )
 
         result = {} if result is None else result
         success_response = types.JSONRPCSuccessResponse(id=request_id, result=result)
