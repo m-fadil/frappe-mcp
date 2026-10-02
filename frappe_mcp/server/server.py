@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
+from typing import Any
 
 from pydantic import BaseModel, ValidationError
 from werkzeug.wrappers import Request, Response
@@ -10,7 +11,7 @@ from werkzeug.wrappers import Request, Response
 import frappe_mcp.server.handlers as handlers
 import frappe_mcp.server.prompts as prompts
 import frappe_mcp.server.tools as tools
-from frappe_mcp.server import types
+from frappe_mcp.server import protocol, types
 
 __all__ = ['MCP']
 
@@ -48,18 +49,46 @@ class MCP:
 
     For use in other Werkzeug-based servers, you can use the `mcp.handle()`
     method directly.
+
+    Args:
+        name: The server name reported in serverInfo. Defaults to "frappe-mcp".
+        allowed_origins: Extra browser origins (e.g. "https://app.example.com")
+            allowed to call the endpoint. A request whose `Origin` header is
+            present, differs from the request host and is not listed here is
+            rejected with HTTP 403.
+        instructions: Optional natural-language guidance for LLMs, returned by
+            `server/discover` and legacy `initialize`.
+        cache_ttl_ms: `ttlMs` freshness hint on modern `server/discover`,
+            `tools/list` and `prompts/list` results. These results are always
+            marked `cacheScope: "private"` because Frappe catalogues can vary
+            per caller and per site settings.
     """
 
     _name: str | None
     _tool_registry: OrderedDict[str, tools.Tool]
     _prompt_registry: OrderedDict[str, prompts.Prompt]
     _mcp_entry_fn: Callable | None
+    _allowed_origins: tuple[str, ...]
+    _instructions: str | None
+    _cache_ttl_ms: int
 
-    def __init__(self, name: str | None):
+    def __init__(
+        self,
+        name: str | None,
+        *,
+        allowed_origins: Iterable[str] = (),
+        instructions: str | None = None,
+        cache_ttl_ms: int = protocol.DEFAULT_CACHE_TTL_MS,
+    ):
+        if cache_ttl_ms < 0:
+            raise ValueError('cache_ttl_ms must be >= 0')
         self._tool_registry = OrderedDict()
         self._prompt_registry = OrderedDict()
         self._name = name
         self._mcp_entry_fn = None
+        self._allowed_origins = tuple(allowed_origins)
+        self._instructions = instructions
+        self._cache_ttl_ms = cache_ttl_ms
 
     def register(
         self,
@@ -133,6 +162,17 @@ class MCP:
         Returns:
             The populated Werkzeug Response object
         """
+        if not protocol.is_origin_allowed(
+            request.headers.get('Origin'), request.host, self._allowed_origins
+        ):
+            return handle_invalid(
+                None,
+                response,
+                types.INVALID_REQUEST,
+                'Forbidden: Origin not allowed',
+                status=403,
+            )
+
         if request.method != 'POST':
             response.status_code = 405
             return response
@@ -153,7 +193,7 @@ class MCP:
                 'Invalid Request',
             )
 
-        return self._handle_request(request_id, data, response)
+        return self._handle_request(request, request_id, data, response)
 
     def tool(
         self,
@@ -264,8 +304,14 @@ class MCP:
         """
         self._prompt_registry[prompt['name']] = prompt
 
+    def _server_info(self) -> dict:
+        from frappe_mcp import __version__
+
+        return {'name': self._name or 'frappe-mcp', 'version': __version__}
+
     def _handle_request(
         self,
+        request: Request,
         request_id: types.RequestId,
         data: dict,
         response: Response,
@@ -284,50 +330,59 @@ class MCP:
         method = rpc_request.method
         params = rpc_request.params or {}
 
-        result = None
+        requested_version = protocol.get_requested_version(params)
+        modern = requested_version is not None
+        if modern:
+            if requested_version not in protocol.MODERN_VERSIONS:
+                return handle_invalid(
+                    request_id,
+                    response,
+                    types.UNSUPPORTED_PROTOCOL_VERSION,
+                    'Unsupported protocol version',
+                    data={
+                        'supported': list(protocol.SUPPORTED_VERSIONS),
+                        'requested': requested_version,
+                    },
+                )
+            if not isinstance(
+                params['_meta'].get(protocol.META_CLIENT_CAPABILITIES), dict
+            ):
+                return handle_invalid(
+                    request_id,
+                    response,
+                    types.INVALID_PARAMS,
+                    f'Invalid params: _meta is missing required {protocol.META_CLIENT_CAPABILITIES}',
+                )
+            try:
+                protocol.validate_headers(request.headers, method, params)
+            except protocol.HeaderMismatchError as e:
+                return handle_invalid(
+                    request_id, response, types.HEADER_MISMATCH, str(e)
+                )
+
+        # Modern servers answer unknown methods with HTTP 404; legacy keeps 400.
+        not_found_status = 404 if modern else 400
+        handler = self._get_handler(method, modern)
+        if handler is None:
+            return handle_invalid(
+                request_id,
+                response,
+                types.METHOD_NOT_FOUND,
+                'Method not found',
+                status=not_found_status,
+            )
 
         try:
-            match method:
-                case 'initialize':
-                    result = handlers.handle_initialize(
-                        params, self._name or 'frappe-mcp'
-                    )
-                case 'ping':
-                    result = handlers.handle_ping(params)
-                case 'completion/complete':
-                    result = handlers.handle_complete(params)
-                case 'logging/setLevel':
-                    result = handlers.handle_set_level(params)
-                case 'prompts/get':
-                    result = prompts.handle_get_prompt(params, self._prompt_registry)
-                case 'prompts/list':
-                    result = prompts.handle_list_prompts(params, self._prompt_registry)
-                case 'resources/list':
-                    result = handlers.handle_list_resources(params)
-                case 'resources/templates/list':
-                    result = handlers.handle_list_resource_templates(params)
-                case 'resources/read':
-                    result = handlers.handle_read_resource(params)
-                case 'resources/subscribe':
-                    result = handlers.handle_subscribe(params)
-                case 'resources/unsubscribe':
-                    result = handlers.handle_unsubscribe(params)
-                case 'tools/call':
-                    result = tools.handle_call_tool(params, self._tool_registry)
-                case 'tools/list':
-                    result = tools.handle_list_tools(params, self._tool_registry)
-                case _:
-                    return handle_invalid(
-                        request_id,
-                        response,
-                        types.METHOD_NOT_FOUND,
-                        'Method not found',
-                    )
+            result = handler(params)
         except ValueError as e:
             return handle_invalid(request_id, response, types.INVALID_PARAMS, str(e))
         except NotImplementedError:
             return handle_invalid(
-                request_id, response, types.METHOD_NOT_FOUND, 'Method not implemented'
+                request_id,
+                response,
+                types.METHOD_NOT_FOUND,
+                'Method not implemented',
+                status=not_found_status,
             )
         except Exception as e:
             return handle_invalid(
@@ -335,11 +390,67 @@ class MCP:
             )
 
         result = {} if result is None else result
+        if modern:
+            result = self._complete_modern_result(method, result)
         success_response = types.JSONRPCSuccessResponse(id=request_id, result=result)
         response.data = get_response_data(success_response)
         response.mimetype = 'application/json'
         response.status_code = 200
         return response
+
+    def _get_handler(
+        self, method: str, modern: bool
+    ) -> Callable[[dict], dict | None] | None:
+        """Resolve the handler of `method` for the request's protocol era.
+
+        Registries are read at call time because apps may swap
+        `_tool_registry` per request.
+        """
+        match method:
+            # Legacy only: the modern era has no handshake, ping, logging
+            # level or resource subscriptions.
+            case 'initialize' if not modern:
+                return lambda p: handlers.handle_initialize(
+                    p, self._server_info(), self._instructions
+                )
+            case 'ping' if not modern:
+                return handlers.handle_ping
+            case 'logging/setLevel' if not modern:
+                return handlers.handle_set_level
+            case 'resources/subscribe' if not modern:
+                return handlers.handle_subscribe
+            case 'resources/unsubscribe' if not modern:
+                return handlers.handle_unsubscribe
+            # Modern only.
+            case 'server/discover' if modern:
+                return lambda p: handlers.handle_discover(p, self._instructions)
+            # Both eras.
+            case 'completion/complete':
+                return handlers.handle_complete
+            case 'prompts/get':
+                return lambda p: prompts.handle_get_prompt(p, self._prompt_registry)
+            case 'prompts/list':
+                return lambda p: prompts.handle_list_prompts(p, self._prompt_registry)
+            case 'resources/list':
+                return handlers.handle_list_resources
+            case 'resources/templates/list':
+                return handlers.handle_list_resource_templates
+            case 'resources/read':
+                return handlers.handle_read_resource
+            case 'tools/call':
+                return lambda p: tools.handle_call_tool(p, self._tool_registry)
+            case 'tools/list':
+                return lambda p: tools.handle_list_tools(p, self._tool_registry)
+        return None
+
+    def _complete_modern_result(self, method: str, result: dict) -> dict:
+        meta = dict(result.get('_meta') or {})
+        meta[protocol.META_SERVER_INFO] = self._server_info()
+        result = {'resultType': 'complete', **result, '_meta': meta}
+        if method in protocol.CACHEABLE_METHODS:
+            result['ttlMs'] = self._cache_ttl_ms
+            result['cacheScope'] = protocol.CACHE_SCOPE
+        return result
 
 
 def handle_notification(data: dict, response: Response) -> Response:
@@ -371,14 +482,17 @@ def handle_invalid(
     response: Response,
     code: int,
     message: str,
+    *,
+    data: Any = None,
+    status: int = 400,
 ) -> Response:
     error_response = types.JSONRPCErrorResponse(
-        id=request_id if request_id is not None else None,
-        error=types.Error(code=code, message=message),
+        id=request_id,
+        error=types.Error(code=code, message=message, data=data),
     )
     response.data = get_response_data(error_response)
     response.mimetype = 'application/json'
-    response.status_code = 400
+    response.status_code = status
     return response
 
 
