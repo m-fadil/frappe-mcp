@@ -1,7 +1,23 @@
 # Frappe MCP
 
 Frappe MCP allows your Frappe Framework app to function as a [Streamable HTTP MCP
-server](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#streamable-http).
+server](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http).
+
+> [!NOTE]
+>
+> **This is a fork of [frappe/mcp](https://github.com/frappe/mcp)** (upstream
+> `frappe-mcp` 0.1.x). Changes in 0.2.0:
+>
+> - **Dependencies relaxed** to `Werkzeug>=3.1.3,<4`, `pydantic>=2.11.7,<3`,
+>   `Click>=8.1.8,<9` so that installing it next to Frappe v15 (Werkzeug 3.1.6,
+>   pydantic 2.12, Click 8.4) no longer downgrades Frappe's own dependencies.
+> - **Dual-era server** for MCP
+>   [2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28/changelog)
+>   alongside the legacy `initialize`-based versions (2025-11-25, 2025-06-18,
+>   2025-03-26). See [Protocol versions](#protocol-versions).
+> - **Origin validation** (DNS-rebinding protection) with
+>   `MCP(name, allowed_origins=[...])`.
+> - `serverInfo.version` reports the package version.
 
 ```python
 # app/app/mcp.py
@@ -39,23 +55,25 @@ _On GitHub, click the Index button on the top right to view the index._
 
 ## Installation
 
+The PyPI package `frappe-mcp` is upstream; install this fork from Git.
+
 Using PIP:
 
 ```bash
-pip install frappe-mcp
+pip install "frappe-mcp @ git+https://github.com/m-fadil/mcp.git@v0.2.0"
 ```
 
 Using UV:
 
 ```bash
-uv add frappe-mcp
+uv add "frappe-mcp @ git+https://github.com/m-fadil/mcp.git@v0.2.0"
 ```
 
 ## Limitations
 
-Frappe MCP is yet in its infancy, as of now it **only supports** Tools.
-Remaining server features such as resources, prompts, tool streaming using SSE
-will be added as needed.
+Frappe MCP is yet in its infancy, as of now it **only supports** Tools and
+Prompts. Remaining server features such as resources and tool streaming using
+SSE will be added as needed.
 
 ## Auth
 
@@ -350,6 +368,50 @@ It accepts the following arguments:
 - `response`: A `werkzeug.Response` object to be populated with the MCP response.
 
 It returns the populated `werkzeug.Response` object.
+
+#### Constructor options
+
+```python
+mcp = MCP(
+    "my-mcp-server",
+    allowed_origins=["https://app.example.com"],  # optional
+    instructions="Use list_todos before mark_done.",  # optional
+    cache_ttl_ms=60_000,  # optional, default 60000
+)
+```
+
+- `allowed_origins`: browser origins allowed besides the request's own host. A
+  request with an `Origin` header whose host differs from the request `Host`
+  and is not listed is rejected with `403`. Requests without `Origin`
+  (server-to-server) are allowed.
+- `instructions`: returned by `server/discover` and legacy `initialize`.
+- `cache_ttl_ms`: `ttlMs` on modern `server/discover`, `tools/list` and
+  `prompts/list`. These results always carry `cacheScope: "private"` because
+  the catalogue may differ per caller (apps can swap `mcp._tool_registry` per
+  request). The server sends no `list_changed` notifications, so the TTL is the
+  only freshness signal; one minute keeps repeated list calls cheap while
+  settings changes propagate quickly. Access is still checked on every call.
+
+### Protocol versions
+
+The server is dual-era. Supported versions: `2026-07-28` (modern) and
+`2025-11-25`, `2025-06-18`, `2025-03-26` (legacy).
+
+A request is **modern** when `params._meta` contains
+`io.modelcontextprotocol/protocolVersion`; otherwise it is **legacy**.
+
+| | Modern (`2026-07-28`) | Legacy |
+| - | - | - |
+| Handshake | none; `server/discover` | `initialize` (echoes a supported legacy version, else `2025-11-25`) |
+| Unsupported version | `400`, `-32022` with `data.supported` / `data.requested` | n/a |
+| `_meta` `clientCapabilities` missing | `400`, `-32602` | n/a |
+| Headers `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` | required, must match the body (`Mcp-Name` Base64 sentinel `=?base64?...?=` decoded); else `400`, `-32020` | not required |
+| `initialize`, `ping`, `logging/setLevel`, `resources/subscribe`, `resources/unsubscribe` | `404`, `-32601` | served as before |
+| Unknown / unimplemented method | `404`, `-32601` | `400`, `-32601` |
+| Results | `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`; lists and discover add `ttlMs`, `cacheScope: "private"` | unchanged |
+
+For both eras: a disallowed `Origin` gives `403`, `GET`/`DELETE` give `405`,
+notifications give `202`, and JSON-RPC errors keep the request `id`.
 
 ## CLI
 
