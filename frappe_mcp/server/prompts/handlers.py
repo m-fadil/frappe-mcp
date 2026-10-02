@@ -52,7 +52,7 @@ def handle_get_prompt(params, prompt_registry: OrderedDict) -> dict:
     else:
         raise ValueError(
             f"Prompt '{name}' must return list[PromptMessage] or GetPromptResult, "
-            f"got {type(raw_result).__name__}."
+            f'got {type(raw_result).__name__}.'
         )
 
     return result.model_dump(exclude_none=True, by_alias=True)

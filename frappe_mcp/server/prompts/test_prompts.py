@@ -36,7 +36,9 @@ class TestGetPrompt:
         def my_prompt():
             pass
 
-        p = get_prompt(my_prompt, PromptOptions(name='custom', description='Custom desc'))
+        p = get_prompt(
+            my_prompt, PromptOptions(name='custom', description='Custom desc')
+        )
         assert p['name'] == 'custom'
         assert p['description'] == 'Custom desc'
 
@@ -105,7 +107,12 @@ class TestHandleListPrompts:
     def test_multiple_prompts_order_preserved(self):
         registry = OrderedDict()
         for name in ['alpha', 'beta', 'gamma']:
-            registry[name] = {'name': name, 'description': None, 'arguments': None, 'fn': MagicMock()}
+            registry[name] = {
+                'name': name,
+                'description': None,
+                'arguments': None,
+                'fn': MagicMock(),
+            }
         result = handle_list_prompts({}, registry)
         assert [p['name'] for p in result['prompts']] == ['alpha', 'beta', 'gamma']
 
@@ -118,15 +125,27 @@ class TestHandleListPrompts:
 class TestHandleGetPrompt:
     def _make_registry(self, name, fn, description=None, arguments=None):
         registry = OrderedDict()
-        registry[name] = {'name': name, 'description': description, 'arguments': arguments, 'fn': fn}
+        registry[name] = {
+            'name': name,
+            'description': description,
+            'arguments': arguments,
+            'fn': fn,
+        }
         return registry
 
     def test_returns_messages_from_list(self):
         def my_prompt(topic: str):
-            return [types.PromptMessage(role='user', content=types.TextContent(text=f'Tell me about {topic}'))]
+            return [
+                types.PromptMessage(
+                    role='user',
+                    content=types.TextContent(text=f'Tell me about {topic}'),
+                )
+            ]
 
         registry = self._make_registry('my_prompt', my_prompt)
-        result = handle_get_prompt({'name': 'my_prompt', 'arguments': {'topic': 'Python'}}, registry)
+        result = handle_get_prompt(
+            {'name': 'my_prompt', 'arguments': {'topic': 'Python'}}, registry
+        )
         assert result['messages'][0]['content']['text'] == 'Tell me about Python'
         assert result['messages'][0]['role'] == 'user'
 
@@ -134,7 +153,11 @@ class TestHandleGetPrompt:
         def my_prompt():
             return types.GetPromptResult(
                 description='desc',
-                messages=[types.PromptMessage(role='assistant', content=types.TextContent(text='Hi'))],
+                messages=[
+                    types.PromptMessage(
+                        role='assistant', content=types.TextContent(text='Hi')
+                    )
+                ],
             )
 
         registry = self._make_registry('my_prompt', my_prompt)
@@ -142,20 +165,24 @@ class TestHandleGetPrompt:
         assert result['messages'][0]['role'] == 'assistant'
 
     def test_unknown_prompt_raises(self):
-        with pytest.raises(ValueError, match="not found"):
+        with pytest.raises(ValueError, match='not found'):
             handle_get_prompt({'name': 'missing'}, OrderedDict())
 
     def test_invalid_return_type_raises(self):
         def bad_prompt():
-            return "just a string"
+            return 'just a string'
 
         registry = self._make_registry('bad', bad_prompt)
-        with pytest.raises(ValueError, match="must return"):
+        with pytest.raises(ValueError, match='must return'):
             handle_get_prompt({'name': 'bad'}, registry)
 
     def test_no_arguments_param(self):
         def my_prompt():
-            return [types.PromptMessage(role='user', content=types.TextContent(text='Hello'))]
+            return [
+                types.PromptMessage(
+                    role='user', content=types.TextContent(text='Hello')
+                )
+            ]
 
         registry = self._make_registry('my_prompt', my_prompt)
         result = handle_get_prompt({'name': 'my_prompt'}, registry)
@@ -163,7 +190,9 @@ class TestHandleGetPrompt:
 
     def test_description_in_result(self):
         def my_prompt():
-            return [types.PromptMessage(role='user', content=types.TextContent(text='x'))]
+            return [
+                types.PromptMessage(role='user', content=types.TextContent(text='x'))
+            ]
 
         registry = self._make_registry('my_prompt', my_prompt, description='My desc')
         result = handle_get_prompt({'name': 'my_prompt'}, registry)

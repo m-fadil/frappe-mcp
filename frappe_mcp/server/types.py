@@ -9,7 +9,7 @@ INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
 
 # Basic JSON-RPC Types
-JSONRPC_VERSION = "2.0"
+JSONRPC_VERSION = '2.0'
 RequestId = Union[str, int, None]
 
 
@@ -102,11 +102,11 @@ class EmptyResult(BaseModel):
 
 # completion/complete
 class PromptReference(BaseMetadata):
-    type: str = "ref/prompt"
+    type: str = 'ref/prompt'
 
 
 class ResourceTemplateReference(BaseModel):
-    type: str = "ref/resource"
+    type: str = 'ref/resource'
     uri: str
 
 
@@ -152,31 +152,31 @@ class Resource(BaseMetadata):
 
 
 class TextContent(BaseModel):
-    type: str = "text"
+    type: str = 'text'
     text: str
     annotations: dict[str, Any] | None = None
 
 
 class ImageContent(BaseModel):
-    type: str = "image"
+    type: str = 'image'
     data: str  # base64
     mimeType: str
     annotations: dict[str, Any] | None = None
 
 
 class AudioContent(BaseModel):
-    type: str = "audio"
+    type: str = 'audio'
     data: str  # base64
     mimeType: str
     annotations: dict[str, Any] | None = None
 
 
 class ResourceLink(Resource):
-    type: str = "resource_link"
+    type: str = 'resource_link'
 
 
 class EmbeddedResource(BaseModel):
-    type: str = "resource"
+    type: str = 'resource'
     resource: TextResourceContents | BlobResourceContents
     annotations: dict[str, Any] | None = None
 

@@ -10,13 +10,13 @@ from frappe_mcp.server.tools.handlers import handle_call_tool, handle_list_tools
 from frappe_mcp.server.tools.tool_schema import get_descriptions, get_input_schema
 
 __all__ = [
-    "Tool",
-    "ToolAnnotations",
-    "ToolOptions",
-    "get_tool",
-    "handle_call_tool",
-    "handle_list_tools",
-    "run_tool",
+    'Tool',
+    'ToolAnnotations',
+    'ToolOptions',
+    'get_tool',
+    'handle_call_tool',
+    'handle_list_tools',
+    'run_tool',
 ]
 
 
@@ -55,19 +55,19 @@ def get_tool(fn: Callable, options: ToolOptions | None = None):
             annotations=None,
         )
 
-    name = options.get("name") or fn.__name__
-    description = options.get("description") or getdoc(fn) or ""
-    input_schema = options.get("input_schema")
+    name = options.get('name') or fn.__name__
+    description = options.get('description') or getdoc(fn) or ''
+    input_schema = options.get('input_schema')
 
     _description, args = get_descriptions(description)
-    if not options.get("use_entire_docstring") and description:
+    if not options.get('use_entire_docstring') and description:
         description = _description
 
     _input_schema = get_input_schema(fn)
-    for schema_key, schema_value in _input_schema["properties"].items():
+    for schema_key, schema_value in _input_schema['properties'].items():
         if schema_key not in args:
             continue
-        schema_value["description"] = args[schema_key]
+        schema_value['description'] = args[schema_key]
     input_schema = input_schema or _input_schema
 
     tool = Tool(
@@ -76,13 +76,13 @@ def get_tool(fn: Callable, options: ToolOptions | None = None):
         description=description,
         input_schema=input_schema,
         output_schema=None,
-        annotations=options.get("annotations"),
+        annotations=options.get('annotations'),
     )
     return tool
 
 
 def run_tool(tool: Tool, arguments: dict[str, Any]):
-    validate(instance=arguments, schema=tool["input_schema"])
-    properties = tool["input_schema"]["properties"]
+    validate(instance=arguments, schema=tool['input_schema'])
+    properties = tool['input_schema']['properties']
     tool_args = {key: arguments[key] for key in arguments if key in properties}
-    return tool["fn"](**tool_args)
+    return tool['fn'](**tool_args)

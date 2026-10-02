@@ -16,25 +16,25 @@ class TestToolHandlers(unittest.TestCase):
         """
         mock_fn = MagicMock()
         tool: ServerTool = {
-            "name": "test_tool",
-            "description": "A test tool",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "a": {"type": "string", "description": "A test property"}
+            'name': 'test_tool',
+            'description': 'A test tool',
+            'input_schema': {
+                'type': 'object',
+                'properties': {
+                    'a': {'type': 'string', 'description': 'A test property'}
                 },
             },
-            "output_schema": {"type": "object", "properties": {}},
-            "annotations": {"title": "Test Tool"},
-            "fn": mock_fn,
+            'output_schema': {'type': 'object', 'properties': {}},
+            'annotations': {'title': 'Test Tool'},
+            'fn': mock_fn,
         }
 
         validated_tool = tool_handlers.get_validated_tool(tool)
         self.assertIsNotNone(validated_tool)
         self.assertIsInstance(validated_tool, types.Tool)
         assert validated_tool is not None
-        self.assertEqual(validated_tool.name, "test_tool")
-        self.assertEqual(validated_tool.description, "A test tool")
+        self.assertEqual(validated_tool.name, 'test_tool')
+        self.assertEqual(validated_tool.description, 'A test tool')
         self.assertIsNotNone(validated_tool.outputSchema)
         self.assertIsNotNone(validated_tool.annotations)
 
@@ -44,19 +44,19 @@ class TestToolHandlers(unittest.TestCase):
         """
         mock_fn = MagicMock()
         tool: ServerTool = {
-            "name": "test_tool_no_optionals",
-            "description": "A test tool without optional fields",
-            "input_schema": {"type": "object", "properties": {}},
-            "output_schema": None,
-            "annotations": None,
-            "fn": mock_fn,
+            'name': 'test_tool_no_optionals',
+            'description': 'A test tool without optional fields',
+            'input_schema': {'type': 'object', 'properties': {}},
+            'output_schema': None,
+            'annotations': None,
+            'fn': mock_fn,
         }
 
         validated_tool = tool_handlers.get_validated_tool(tool)
         self.assertIsNotNone(validated_tool)
         self.assertIsInstance(validated_tool, types.Tool)
         assert validated_tool is not None
-        self.assertEqual(validated_tool.name, "test_tool_no_optionals")
+        self.assertEqual(validated_tool.name, 'test_tool_no_optionals')
         self.assertIsNone(validated_tool.outputSchema)
         self.assertIsNone(validated_tool.annotations)
 
@@ -66,9 +66,9 @@ class TestToolHandlers(unittest.TestCase):
         """
         # Missing 'name' which is required
         tool = {
-            "description": "An invalid test tool",
-            "input_schema": {"type": "object", "properties": {}},
-            "fn": MagicMock(),
+            'description': 'An invalid test tool',
+            'input_schema': {'type': 'object', 'properties': {}},
+            'fn': MagicMock(),
         }
 
         # The function expects a ServerTool, so we need to cast it to Any to bypass static analysis
