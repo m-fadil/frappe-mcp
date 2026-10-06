@@ -22,9 +22,9 @@ license = "MIT"
 license-files = ["LICENSE"]
 
 [project.urls]
-Homepage = "https://github.com/m-fadil/mcp"
-Documentation = "https://github.com/m-fadil/mcp#readme"
-Source = "https://github.com/m-fadil/mcp"
+Homepage = "https://github.com/m-fadil/frappe-mcp"
+Documentation = "https://github.com/m-fadil/frappe-mcp#readme"
+Source = "https://github.com/m-fadil/frappe-mcp"
 Upstream = "https://github.com/frappe/mcp"
 
 [project.scripts]

@@ -60,13 +60,13 @@ The PyPI package `frappe-mcp` is upstream; install this fork from Git.
 Using PIP:
 
 ```bash
-pip install "frappe-mcp @ git+https://github.com/m-fadil/mcp.git@v0.2.0"
+pip install "frappe-mcp @ git+https://github.com/m-fadil/frappe-mcp.git@v0.2.0"
 ```
 
 Using UV:
 
 ```bash
-uv add "frappe-mcp @ git+https://github.com/m-fadil/mcp.git@v0.2.0"
+uv add "frappe-mcp @ git+https://github.com/m-fadil/frappe-mcp.git@v0.2.0"
 ```
 
 ## Limitations
