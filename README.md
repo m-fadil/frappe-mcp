@@ -353,6 +353,34 @@ def handle_mcp():
     import app.tools
 ```
 
+The entry function may return the tools for this request, e.g. filtered by the
+caller's roles. Returning a registry is thread-safe; reassigning
+`mcp._tool_registry` is not (Frappe serves requests on several threads, so one
+caller could see another caller's tools).
+
+```python
+@mcp.register()
+def handle_mcp():
+    tools = OrderedDict(mcp._tool_registry)
+    if "System Manager" not in frappe.get_roles():
+        tools.pop("delete_records", None)
+    return tools
+```
+
+#### Errors and transactions
+
+- Each request runs inside a database savepoint. When a tool raises (or a
+  handler fails), its writes are rolled back before the response is returned,
+  because Frappe would otherwise commit the successful HTTP request.
+- A tool error is returned as `isError: true`. Only messages meant for the
+  caller are passed on: `frappe.ValidationError` and `frappe.PermissionError`
+  (anything raised with `frappe.throw`) and `frappe_mcp.ToolError`. Other
+  exceptions are recorded in the Error Log (outside Frappe: the `frappe_mcp`
+  logger) and the client only sees "internal error".
+- Tool results are serialized with Frappe's JSON encoder (dates, `Decimal`,
+  documents); a result that serializes to a JSON object is also returned as
+  `structuredContent`.
+
 #### `mcp.handle` method
 
 This method directly processes a `werkzeug.Request` and returns a
@@ -366,6 +394,8 @@ It accepts the following arguments:
 
 - `request`: The `werkzeug.Request` object containing the MCP request.
 - `response`: A `werkzeug.Response` object to be populated with the MCP response.
+- `tool_registry` (optional, keyword-only): tools for this request only;
+  defaults to the tools registered on the instance.
 
 It returns the populated `werkzeug.Response` object.
 
@@ -387,10 +417,11 @@ mcp = MCP(
 - `instructions`: returned by `server/discover` and legacy `initialize`.
 - `cache_ttl_ms`: `ttlMs` on modern `server/discover`, `tools/list` and
   `prompts/list`. These results always carry `cacheScope: "private"` because
-  the catalogue may differ per caller (apps can swap `mcp._tool_registry` per
-  request). The server sends no `list_changed` notifications, so the TTL is the
-  only freshness signal; one minute keeps repeated list calls cheap while
-  settings changes propagate quickly. Access is still checked on every call.
+  the catalogue may differ per caller (the entry function may return a
+  per-request registry). The server sends no `list_changed` notifications, so
+  the TTL is the only freshness signal; one minute keeps repeated list calls
+  cheap while settings changes propagate quickly. Access is still checked on
+  every call.
 
 ### Protocol versions
 
@@ -405,13 +436,20 @@ A request is **modern** when `params._meta` contains
 | Handshake | none; `server/discover` | `initialize` (echoes a supported legacy version, else `2025-11-25`) |
 | Unsupported version | `400`, `-32022` with `data.supported` / `data.requested` | n/a |
 | `_meta` `clientCapabilities` missing | `400`, `-32602` | n/a |
-| Headers `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` | required, must match the body (`Mcp-Name` Base64 sentinel `=?base64?...?=` decoded); else `400`, `-32020` | not required |
-| `initialize`, `ping`, `logging/setLevel`, `resources/subscribe`, `resources/unsubscribe` | `404`, `-32601` | served as before |
-| Unknown / unimplemented method | `404`, `-32601` | `400`, `-32601` |
+| Headers `MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name` | required, must match the body (`Mcp-Name` Base64 sentinel `=?base64?...?=` decoded); else `400`, `-32020` | optional; an `MCP-Protocol-Version` header that is not a legacy version gives `400` (`-32022`, or `-32602` for `2026-07-28` without `_meta`); ignored on `initialize` |
+| `initialize`, `ping` | `404`, `-32601` | served |
+| Unknown method (incl. resources, completions, logging, subscriptions) | `404`, `-32601` | `400`, `-32601` |
 | Results | `resultType: "complete"` and `_meta["io.modelcontextprotocol/serverInfo"]`; lists and discover add `ttlMs`, `cacheScope: "private"` | unchanged |
 
 For both eras: a disallowed `Origin` gives `403`, `GET`/`DELETE` give `405`,
-notifications give `202`, and JSON-RPC errors keep the request `id`.
+notifications give `202`, and JSON-RPC errors keep the request `id`. A body that
+is not valid JSON gives `400`, `-32700`; a body that is not a JSON object
+(including JSON-RPC batches) gives `400`, `-32600`.
+
+`tools/call` with an unknown tool name gives `400`, `-32602`. Arguments are
+validated against the tool's `inputSchema`; invalid arguments and exceptions
+raised by the tool are returned as a result with `isError: true`. Arguments not
+declared in `inputSchema.properties` are dropped before the tool is called.
 
 ## CLI
 

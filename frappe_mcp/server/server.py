@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import OrderedDict
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 from pydantic import BaseModel, ValidationError
@@ -11,7 +11,7 @@ from werkzeug.wrappers import Request, Response
 import frappe_mcp.server.handlers as handlers
 import frappe_mcp.server.prompts as prompts
 import frappe_mcp.server.tools as tools
-from frappe_mcp.server import protocol, types
+from frappe_mcp.server import protocol, runtime, types
 
 __all__ = ['MCP']
 
@@ -135,21 +135,31 @@ class MCP:
             self._mcp_entry_fn = fn
 
             def wrapper() -> Response:
-                # Runs wrapped dummy mcp handler before handling the request.
-                # This should import all the files with the registered mcp
-                # functions.
-                fn()
+                # Runs the entry function before handling the request. It
+                # imports the modules that register tools and may return the
+                # tool registry for this request.
+                tool_registry = fn()
+                if tool_registry is not None and not isinstance(tool_registry, Mapping):
+                    raise TypeError(
+                        'The mcp.register function must return None or a mapping '
+                        f'of tool name to Tool, got {type(tool_registry).__name__}'
+                    )
 
-                request = frappe.request
-                response = Response()
-
-                return self.handle(request, response)
+                return self.handle(
+                    frappe.request, Response(), tool_registry=tool_registry
+                )
 
             return whitelister(wrapper)
 
         return decorator
 
-    def handle(self, request: Request, response: Response) -> Response:
+    def handle(
+        self,
+        request: Request,
+        response: Response,
+        *,
+        tool_registry: Mapping[str, tools.Tool] | None = None,
+    ) -> Response:
         """Handle an MCP request in any Werkzeug based server.
 
         This method can be used directly to integrate MCP functionality into any Werkzeug based server.
@@ -158,6 +168,10 @@ class MCP:
         Args:
             request: The Werkzeug Request object containing the MCP request
             response: A Werkzeug Response object to be populated with the MCP response
+            tool_registry: Tools for this request only (e.g. filtered by the
+                caller's roles). Defaults to the tools registered on this
+                instance. Passing it per request is thread-safe; reassigning
+                an attribute of the shared instance is not.
 
         Returns:
             The populated Werkzeug Response object
@@ -178,14 +192,24 @@ class MCP:
             return response
 
         try:
-            data = request.get_json(force=True)
-        except json.JSONDecodeError:
+            data = json.loads(request.get_data())
+        except ValueError:  # JSONDecodeError and UnicodeDecodeError
             return handle_invalid(None, response, types.PARSE_ERROR, 'Parse error')
 
-        if get_is_notification(data):
-            return handle_notification(data, response)
+        if not isinstance(data, dict):
+            # Includes JSON-RPC batches, removed in protocol 2025-06-18.
+            return handle_invalid(
+                None, response, types.INVALID_REQUEST, 'Invalid Request'
+            )
 
-        if (request_id := data.get('id')) is None:
+        if get_is_notification(data):
+            # No client notification changes server state: requests are
+            # handled synchronously and no session is kept.
+            response.status_code = 202  # Accepted
+            return response
+
+        request_id = data.get('id')
+        if request_id is None:
             return handle_invalid(
                 request_id,
                 response,
@@ -193,7 +217,9 @@ class MCP:
                 'Invalid Request',
             )
 
-        return self._handle_request(request, request_id, data, response)
+        if tool_registry is None:
+            tool_registry = self._tool_registry
+        return self._handle_request(request, data, response, tool_registry)
 
     def tool(
         self,
@@ -312,57 +338,35 @@ class MCP:
     def _handle_request(
         self,
         request: Request,
-        request_id: types.RequestId,
         data: dict,
         response: Response,
+        tool_registry: Mapping[str, tools.Tool],
     ) -> Response:
-        # Request
         try:
             rpc_request = types.JSONRPCRequest.model_validate(data)
-        except ValidationError as e:
+        except ValidationError:
+            # An id of the wrong type cannot be echoed back.
+            request_id = data.get('id')
+            if isinstance(request_id, bool) or not isinstance(
+                request_id, str | int | float
+            ):
+                request_id = None
             return handle_invalid(
-                request_id,
-                response,
-                types.INVALID_PARAMS,
-                f'Invalid params: {e}',
+                request_id, response, types.INVALID_REQUEST, 'Invalid Request'
             )
 
+        request_id = rpc_request.id
         method = rpc_request.method
         params = rpc_request.params or {}
 
-        requested_version = protocol.get_requested_version(params)
-        modern = requested_version is not None
-        if modern:
-            if requested_version not in protocol.MODERN_VERSIONS:
-                return handle_invalid(
-                    request_id,
-                    response,
-                    types.UNSUPPORTED_PROTOCOL_VERSION,
-                    'Unsupported protocol version',
-                    data={
-                        'supported': list(protocol.SUPPORTED_VERSIONS),
-                        'requested': requested_version,
-                    },
-                )
-            if not isinstance(
-                params['_meta'].get(protocol.META_CLIENT_CAPABILITIES), dict
-            ):
-                return handle_invalid(
-                    request_id,
-                    response,
-                    types.INVALID_PARAMS,
-                    f'Invalid params: _meta is missing required {protocol.META_CLIENT_CAPABILITIES}',
-                )
-            try:
-                protocol.validate_headers(request.headers, method, params)
-            except protocol.HeaderMismatchError as e:
-                return handle_invalid(
-                    request_id, response, types.HEADER_MISMATCH, str(e)
-                )
+        try:
+            modern = protocol.resolve_era(request.headers, method, params)
+        except protocol.ProtocolError as e:
+            return handle_invalid(request_id, response, e.code, e.message, data=e.data)
 
         # Modern servers answer unknown methods with HTTP 404; legacy keeps 400.
         not_found_status = 404 if modern else 400
-        handler = self._get_handler(method, modern)
+        handler = self._get_handler(method, modern, tool_registry)
         if handler is None:
             return handle_invalid(
                 request_id,
@@ -372,22 +376,23 @@ class MCP:
                 status=not_found_status,
             )
 
-        try:
-            result = handler(params)
-        except ValueError as e:
-            return handle_invalid(request_id, response, types.INVALID_PARAMS, str(e))
-        except NotImplementedError:
-            return handle_invalid(
-                request_id,
-                response,
-                types.METHOD_NOT_FOUND,
-                'Method not implemented',
-                status=not_found_status,
-            )
-        except Exception as e:
-            return handle_invalid(
-                request_id, response, types.INTERNAL_ERROR, f'Internal error: {e}'
-            )
+        with runtime.request_scope():
+            try:
+                result = handler(params)
+            except ValueError as e:
+                runtime.rollback()
+                return handle_invalid(
+                    request_id, response, types.INVALID_PARAMS, str(e)
+                )
+            except Exception as e:
+                runtime.rollback()
+                message = runtime.user_message(e)
+                if message is None:
+                    runtime.log_exception(f'MCP {method} failed')
+                    message = 'Internal error (logged on the server)'
+                return handle_invalid(
+                    request_id, response, types.INTERNAL_ERROR, message
+                )
 
         result = {} if result is None else result
         if modern:
@@ -399,48 +404,29 @@ class MCP:
         return response
 
     def _get_handler(
-        self, method: str, modern: bool
+        self, method: str, modern: bool, tool_registry: Mapping[str, tools.Tool]
     ) -> Callable[[dict], dict | None] | None:
-        """Resolve the handler of `method` for the request's protocol era.
-
-        Registries are read at call time because apps may swap
-        `_tool_registry` per request.
-        """
+        """Resolve the handler of `method` for the request's protocol era."""
         match method:
-            # Legacy only: the modern era has no handshake, ping, logging
-            # level or resource subscriptions.
+            # Legacy only: the modern era has no handshake or ping.
             case 'initialize' if not modern:
                 return lambda p: handlers.handle_initialize(
                     p, self._server_info(), self._instructions
                 )
             case 'ping' if not modern:
                 return handlers.handle_ping
-            case 'logging/setLevel' if not modern:
-                return handlers.handle_set_level
-            case 'resources/subscribe' if not modern:
-                return handlers.handle_subscribe
-            case 'resources/unsubscribe' if not modern:
-                return handlers.handle_unsubscribe
             # Modern only.
             case 'server/discover' if modern:
                 return lambda p: handlers.handle_discover(p, self._instructions)
             # Both eras.
-            case 'completion/complete':
-                return handlers.handle_complete
             case 'prompts/get':
                 return lambda p: prompts.handle_get_prompt(p, self._prompt_registry)
             case 'prompts/list':
                 return lambda p: prompts.handle_list_prompts(p, self._prompt_registry)
-            case 'resources/list':
-                return handlers.handle_list_resources
-            case 'resources/templates/list':
-                return handlers.handle_list_resource_templates
-            case 'resources/read':
-                return handlers.handle_read_resource
             case 'tools/call':
-                return lambda p: tools.handle_call_tool(p, self._tool_registry)
+                return lambda p: tools.handle_call_tool(p, tool_registry)
             case 'tools/list':
-                return lambda p: tools.handle_list_tools(p, self._tool_registry)
+                return lambda p: tools.handle_list_tools(p, tool_registry)
         return None
 
     def _complete_modern_result(self, method: str, result: dict) -> dict:
@@ -451,30 +437,6 @@ class MCP:
             result['ttlMs'] = self._cache_ttl_ms
             result['cacheScope'] = protocol.CACHE_SCOPE
         return result
-
-
-def handle_notification(data: dict, response: Response) -> Response:
-    # Notification
-    try:
-        rpc_notification = types.JSONRPCNotification.model_validate(data)
-    except ValidationError:
-        # Notifications with invalid params are ignored
-        pass
-    else:
-        method = rpc_notification.method
-        params = rpc_notification.params or {}
-        match method:
-            case 'notifications/cancelled':
-                handlers.handle_cancelled(params)
-            case 'notifications/progress':
-                handlers.handle_progress(params)
-            case 'notifications/initialized':
-                handlers.handle_initialized(params)
-            case 'notifications/roots/list_changed':
-                handlers.handle_roots_list_changed(params)
-
-    response.status_code = 202  # Accepted
-    return response
 
 
 def handle_invalid(

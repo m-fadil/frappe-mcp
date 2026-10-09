@@ -53,37 +53,3 @@ def handle_ping(_):
     https://modelcontextprotocol.io/specification/2025-03-26/basic/utilities/ping#ping
     """
     return {}
-
-
-def handle_complete(_params):
-    raise NotImplementedError('handle_complete not implemented')
-
-
-def handle_set_level(_params):
-    raise NotImplementedError('handle_set_level not implemented')
-
-
-def handle_list_resources(_params):
-    raise NotImplementedError('handle_list_resources not implemented')
-
-
-def handle_list_resource_templates(_params):
-    raise NotImplementedError('handle_list_resource_templates not implemented')
-
-
-def handle_read_resource(_params):
-    raise NotImplementedError('handle_read_resource not implemented')
-
-
-def handle_subscribe(_params):
-    raise NotImplementedError('handle_subscribe not implemented')
-
-
-def handle_unsubscribe(_params):
-    raise NotImplementedError('handle_unsubscribe not implemented')
-
-
-def handle_cancelled(_params): ...
-def handle_progress(_params): ...
-def handle_initialized(_params): ...
-def handle_roots_list_changed(_params): ...

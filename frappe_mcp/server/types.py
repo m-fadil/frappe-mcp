@@ -1,6 +1,6 @@
-from typing import Any, Union
+from typing import Any, Literal, Union
 
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictFloat, StrictInt, StrictStr
 
 PARSE_ERROR = -32700
 INVALID_REQUEST = -32600
@@ -13,24 +13,20 @@ UNSUPPORTED_PROTOCOL_VERSION = -32022
 
 # Basic JSON-RPC Types
 JSONRPC_VERSION = '2.0'
-RequestId = Union[str, int, None]
+RequestId = Union[StrictStr, StrictInt, StrictFloat, None]
 
 
-class BaseRequest(BaseModel):
-    method: str
-    params: dict[str, Any] | None = None
+def dump(model: BaseModel) -> dict[str, Any]:
+    """Serialize a model into an MCP result dict (unset optional fields omitted)."""
+    return model.model_dump(exclude_none=True, by_alias=True)
 
 
 class JSONRPCRequest(BaseModel):
-    jsonrpc: str = JSONRPC_VERSION
-    id: RequestId
-    method: str
-    params: dict[str, Any] | None = None
-
-
-class JSONRPCNotification(BaseModel):
-    jsonrpc: str = JSONRPC_VERSION
-    method: str
+    jsonrpc: Literal['2.0']
+    # Strict: `true` must not be coerced to 1, or the response id would differ
+    # from the request id.
+    id: StrictStr | StrictInt | StrictFloat
+    method: StrictStr
     params: dict[str, Any] | None = None
 
 
@@ -60,78 +56,7 @@ class BaseMetadata(BaseModel):
     title: str | None = None
 
 
-class Implementation(BaseMetadata):
-    version: str
-
-
-# initialize
-class ClientCapabilities(BaseModel):
-    experimental: dict[str, Any] | None = None
-    roots: dict[str, Any] | None = None
-    sampling: dict[str, Any] | None = None
-    elicitation: dict[str, Any] | None = None
-
-
-class InitializeRequestParams(BaseModel):
-    protocolVersion: str
-    capabilities: ClientCapabilities
-    clientInfo: Implementation
-
-
-class ServerCapabilities(BaseModel):
-    experimental: dict[str, Any] | None = None
-    logging: dict[str, Any] | None = None
-    completions: dict[str, Any] | None = None
-    prompts: dict[str, Any] | None = None
-    resources: dict[str, Any] | None = None
-    tools: dict[str, Any] | None = None
-
-
-class InitializeResult(BaseModel):
-    protocolVersion: str
-    capabilities: ServerCapabilities
-    serverInfo: Implementation
-    instructions: str | None = None
-
-
-# ping - no params, empty result
-class PingRequestParams(BaseModel):
-    pass
-
-
-class EmptyResult(BaseModel):
-    pass
-
-
-# completion/complete
-class PromptReference(BaseMetadata):
-    type: str = 'ref/prompt'
-
-
-class ResourceTemplateReference(BaseModel):
-    type: str = 'ref/resource'
-    uri: str
-
-
-class CompleteRequestParams(BaseModel):
-    ref: PromptReference | ResourceTemplateReference
-    argument: dict[str, str]
-    context: dict[str, Any] | None = None
-
-
-class CompleteResult(BaseModel):
-    completion: dict[str, Any]
-
-
-# logging/setLevel
-class SetLevelRequestParams(BaseModel):
-    level: str
-
-
-# prompts/get
-class GetPromptRequestParams(BaseModel):
-    name: str
-    arguments: dict[str, str] | None = None
+# Content blocks
 
 
 class TextResourceContents(BaseModel):
@@ -189,6 +114,12 @@ ContentBlock = Union[
 ]
 
 
+# prompts/get
+class GetPromptRequestParams(BaseModel):
+    name: str
+    arguments: dict[str, str] | None = None
+
+
 class PromptMessage(BaseModel):
     role: str
     content: ContentBlock
@@ -217,52 +148,6 @@ class Prompt(BaseMetadata):
 class ListPromptsResult(BaseModel):
     prompts: list[Prompt]
     nextCursor: str | None = None
-
-
-# resources/list
-class ListResourcesRequestParams(BaseModel):
-    cursor: str | None = None
-
-
-class ListResourcesResult(BaseModel):
-    resources: list[Resource]
-    nextCursor: str | None = None
-
-
-# resources/templates/list
-class ListResourceTemplatesRequestParams(BaseModel):
-    cursor: str | None = None
-
-
-class ResourceTemplate(BaseMetadata):
-    uriTemplate: str
-    description: str | None = None
-    mimeType: str | None = None
-    annotations: dict[str, Any] | None = None
-
-
-class ListResourceTemplatesResult(BaseModel):
-    resourceTemplates: list[ResourceTemplate]
-    nextCursor: str | None = None
-
-
-# resources/read
-class ReadResourceRequestParams(BaseModel):
-    uri: str
-
-
-class ReadResourceResult(BaseModel):
-    contents: list[TextResourceContents | BlobResourceContents]
-
-
-# resources/subscribe
-class SubscribeRequestParams(BaseModel):
-    uri: str
-
-
-# resources/unsubscribe
-class UnsubscribeRequestParams(BaseModel):
-    uri: str
 
 
 # tools/call
@@ -300,24 +185,3 @@ class Tool(BaseMetadata):
 class ListToolsResult(BaseModel):
     tools: list[Tool]
     nextCursor: str | None = None
-
-
-# Notifications
-class CancelledNotificationParams(BaseModel):
-    requestId: RequestId
-    reason: str | None = None
-
-
-class ProgressNotificationParams(BaseModel):
-    progressToken: str | int
-    progress: float
-    total: float | None = None
-    message: str | None = None
-
-
-class InitializedNotificationParams(BaseModel):
-    pass
-
-
-class RootsListChangedNotificationParams(BaseModel):
-    pass

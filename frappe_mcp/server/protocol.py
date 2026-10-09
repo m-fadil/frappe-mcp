@@ -6,7 +6,8 @@ Implements the dual-era rules of MCP 2026-07-28:
   ``params._meta`` and is served statelessly; its HTTP headers must mirror the
   body (``MCP-Protocol-Version``, ``Mcp-Method``, ``Mcp-Name``).
 - A *legacy* request (no per-request version) keeps the ``initialize``-based
-  behaviour of protocol versions 2025-11-25 and earlier.
+  behaviour of protocol versions 2025-11-25 and earlier; a non-legacy
+  ``MCP-Protocol-Version`` header on it is rejected.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ import binascii
 from collections.abc import Iterable, Mapping
 from typing import Any
 from urllib.parse import urlsplit
+
+from frappe_mcp.server import types
 
 META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion'
 META_CLIENT_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities'
@@ -38,18 +41,9 @@ NAME_FIELD_BY_METHOD = {
 }
 
 # Results that carry caching hints (`ttlMs`, `cacheScope`) in the modern era.
-CACHEABLE_METHODS = frozenset(
-    {
-        'server/discover',
-        'tools/list',
-        'prompts/list',
-        'resources/list',
-        'resources/templates/list',
-        'resources/read',
-    }
-)
-# Always "private": an app may swap `MCP._tool_registry` per request (per user
-# roles or site settings), so a catalogue must never be shared across callers.
+CACHEABLE_METHODS = frozenset({'server/discover', 'tools/list', 'prompts/list'})
+# Always "private": the entry function may return a per-request tool registry
+# (per user roles or site settings), so a catalogue must never be shared.
 CACHE_SCOPE = 'private'
 # One minute: the server sends no list_changed notifications, so the TTL is the
 # only freshness signal. A short window spares repeated list calls within one
@@ -62,8 +56,67 @@ _BASE64_SUFFIX = '?='
 _DEFAULT_PORTS = {'http': 80, 'https': 443}
 
 
-class HeaderMismatchError(Exception):
+class ProtocolError(Exception):
+    """A request rejected before dispatch, answered with HTTP 400."""
+
+    def __init__(self, code: int, message: str, data: Any = None):
+        super().__init__(message)
+        self.code = code
+        self.message = message
+        self.data = data
+
+
+class HeaderMismatchError(ProtocolError):
     """Mirrored HTTP headers are missing, malformed or disagree with the body."""
+
+    def __init__(self, message: str):
+        super().__init__(types.HEADER_MISMATCH, message)
+
+
+def resolve_era(headers: Mapping[str, str], method: str, params: Mapping) -> bool:
+    """Validate the request's protocol metadata and return True if it is modern.
+
+    `headers` must be case-insensitive (e.g. werkzeug's `Headers`).
+
+    Raises:
+        ProtocolError: if the requested version is unsupported, required
+            `_meta` fields are missing or the HTTP headers do not match.
+    """
+    version = get_requested_version(params)
+    if version is None:
+        _check_legacy_header(headers, method)
+        return False
+
+    if version not in MODERN_VERSIONS:
+        raise _unsupported_version(version)
+    if not isinstance(params['_meta'].get(META_CLIENT_CAPABILITIES), dict):
+        raise ProtocolError(
+            types.INVALID_PARAMS,
+            f'Invalid params: _meta is missing required {META_CLIENT_CAPABILITIES}',
+        )
+    validate_headers(headers, method, params)
+    return True
+
+
+def _check_legacy_header(headers: Mapping[str, str], method: str) -> None:
+    # `initialize` precedes version negotiation, so its header is not binding.
+    header = headers.get(HEADER_PROTOCOL_VERSION)
+    if header is None or header in LEGACY_VERSIONS or method == 'initialize':
+        return
+    if header in MODERN_VERSIONS:
+        raise ProtocolError(
+            types.INVALID_PARAMS,
+            f'Invalid params: _meta is missing required {META_PROTOCOL_VERSION}',
+        )
+    raise _unsupported_version(header)
+
+
+def _unsupported_version(requested: Any) -> ProtocolError:
+    return ProtocolError(
+        types.UNSUPPORTED_PROTOCOL_VERSION,
+        'Unsupported protocol version',
+        data={'supported': list(SUPPORTED_VERSIONS), 'requested': requested},
+    )
 
 
 def get_requested_version(params: Any) -> Any:

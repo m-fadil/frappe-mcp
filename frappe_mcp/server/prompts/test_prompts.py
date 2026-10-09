@@ -52,12 +52,17 @@ class TestGetPrompt:
         assert args['topic']['required'] is True
         assert args['language']['required'] is False
 
-    def test_no_params_gives_none_arguments(self):
+    def test_no_params_prompt_ignores_sent_arguments(self):
         def my_prompt():
-            pass
+            return [
+                types.PromptMessage(role='user', content=types.TextContent(text='hi'))
+            ]
 
-        p = get_prompt(my_prompt)
-        assert p['arguments'] is None
+        registry = OrderedDict(my_prompt=get_prompt(my_prompt))
+        result = handle_get_prompt(
+            {'name': 'my_prompt', 'arguments': {'extra': 'x'}}, registry
+        )
+        assert result['messages'][0]['content']['text'] == 'hi'
 
     def test_fn_stored(self):
         def fn():

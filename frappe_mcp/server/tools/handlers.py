@@ -1,69 +1,75 @@
 from __future__ import annotations
 
 import json
+import logging
 from collections import OrderedDict
 from typing import Any
 
+from jsonschema import ValidationError as ArgumentsError
 from pydantic import ValidationError
 
 import frappe_mcp.server.tools as tools
-from frappe_mcp.server import types
+from frappe_mcp.server import runtime, types
+
+logger = logging.getLogger(__name__)
 
 
 def handle_call_tool(params, tool_registry: OrderedDict[str, tools.Tool]):
     """
     Handles the tools/call request from the client.
+    https://modelcontextprotocol.io/specification/2026-07-28/server/tools#error-handling
+
+    Unknown tools are protocol errors (ValueError -> -32602). Invalid arguments
+    and failures inside the tool are tool execution errors (`isError: true`);
+    a failing tool's database writes are rolled back. Only messages meant for
+    the caller (see `runtime.user_message`) reach the client; other errors are
+    logged and reported generically.
     """
     call_params = types.CallToolRequestParams.model_validate(params)
     tool_name = call_params.name
-    arguments = call_params.arguments or {}
 
-    if tool_name not in tool_registry:
-        # TODO: Figure out how to return a proper JSON-RPC error
-        # For now, return a result with an error indication.
-        error_content = types.TextContent(text=f"Tool '{tool_name}' not found.")
-        result = types.CallToolResult(content=[error_content], isError=True)
-        return result.model_dump(exclude_none=True, by_alias=True)
-
-    tool_info = tool_registry[tool_name]
-    fn = tool_info.get('fn')
-
-    if not fn:
-        error_content = types.TextContent(
-            text=f"Tool '{tool_name}' has no associated function."
-        )
-        result = types.CallToolResult(content=[error_content], isError=True)
-        return result.model_dump(exclude_none=True, by_alias=True)
+    tool = tool_registry.get(tool_name)
+    if tool is None:
+        raise ValueError(f'Unknown tool: {tool_name}')
 
     try:
-        return _get_result(fn, arguments)
+        tool_result = tools.run_tool(tool, call_params.arguments or {})
+    except ArgumentsError as e:
+        runtime.rollback()
+        return _error_result(f"Invalid arguments for tool '{tool_name}': {e.message}")
     except Exception as e:
-        error_content = types.TextContent(text=f"Error calling tool '{tool_name}': {e}")
-        result = types.CallToolResult(content=[error_content], isError=True)
-        return result.model_dump(exclude_none=True, by_alias=True)
+        runtime.rollback()
+        if (message := runtime.user_message(e)) is not None:
+            return _error_result(f"Error calling tool '{tool_name}': {message}")
+        runtime.log_exception(f"MCP tool '{tool_name}' failed")
+        return _error_result(
+            f"Error calling tool '{tool_name}': internal error (logged on the server)"
+        )
+    return _to_call_result(tool_result)
 
 
-def _get_result(fn, arguments):
-    # TODO: check if tool_result is list of content blocks, if so, return it as is
-
-    tool_result = fn(**arguments)
-    content = types.TextContent(text='')
-    if isinstance(tool_result, str):
-        content.text = tool_result
-
-    structured = None
-    try:
-        content.text = content.text or json.dumps(tool_result)
-        if isinstance(tool_result, dict):
-            structured = tool_result
-    except Exception:
-        content.text = content.text or str(tool_result)
-
-    result = types.CallToolResult(
-        content=[content], structuredContent=structured, isError=False
+def _error_result(text: str) -> dict:
+    return types.dump(
+        types.CallToolResult(content=[types.TextContent(text=text)], isError=True)
     )
 
-    return result.model_dump(exclude_none=True, by_alias=True)
+
+def _to_call_result(tool_result: Any) -> dict:
+    if isinstance(tool_result, str):
+        text, structured = tool_result, None
+    else:
+        text = json.dumps(tool_result, default=runtime.json_default)
+        parsed = json.loads(text)
+        # Structured content stays an object for legacy clients.
+        structured = parsed if isinstance(parsed, dict) else None
+
+    return types.dump(
+        types.CallToolResult(
+            content=[types.TextContent(text=text)],
+            structuredContent=structured,
+            isError=False,
+        )
+    )
 
 
 def handle_list_tools(params, tool_registry: OrderedDict[str, tools.Tool]):
@@ -71,7 +77,6 @@ def handle_list_tools(params, tool_registry: OrderedDict[str, tools.Tool]):
     Handles the tools/list request from the client.
     https://modelcontextprotocol.io/specification/2025-06-18/tools/list#toolslist
     """
-    # TODO: add pagination support
     types.ListToolsRequestParams.model_validate(params)
 
     tool_list = []
@@ -79,8 +84,7 @@ def handle_list_tools(params, tool_registry: OrderedDict[str, tools.Tool]):
         if tool := get_validated_tool(tool_info):
             tool_list.append(tool)
 
-    result = types.ListToolsResult(tools=tool_list, nextCursor=None)
-    return result.model_dump(exclude_none=True, by_alias=True)
+    return types.dump(types.ListToolsResult(tools=tool_list))
 
 
 def get_validated_tool(tool: tools.Tool):
@@ -100,12 +104,5 @@ def get_validated_tool(tool: tools.Tool):
     try:
         return types.Tool.model_validate(t)
     except ValidationError as e:
-        print(e)
+        logger.warning('Skipping invalid tool %r: %s', t['name'], e)
     return None
-
-
-def safe_dumps(data: Any) -> str:
-    try:
-        return json.dumps(data)
-    except Exception:
-        return str(data)

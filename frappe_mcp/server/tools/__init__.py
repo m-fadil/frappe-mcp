@@ -82,7 +82,19 @@ def get_tool(fn: Callable, options: ToolOptions | None = None):
 
 
 def run_tool(tool: Tool, arguments: dict[str, Any]):
-    validate(instance=arguments, schema=tool['input_schema'])
-    properties = tool['input_schema']['properties']
-    tool_args = {key: arguments[key] for key in arguments if key in properties}
-    return tool['fn'](**tool_args)
+    """Validate `arguments` against the tool's input schema and call it.
+
+    Arguments not declared in the schema's `properties` are dropped so that
+    extra keys from clients do not reach the function as unexpected kwargs.
+
+    Raises:
+        jsonschema.ValidationError: if `arguments` do not match the schema.
+    """
+    schema = tool['input_schema']
+    validate(instance=arguments, schema=schema)
+    properties = schema.get('properties')
+    if properties is not None:
+        arguments = {
+            key: value for key, value in arguments.items() if key in properties
+        }
+    return tool['fn'](**arguments)

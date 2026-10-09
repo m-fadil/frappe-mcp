@@ -46,7 +46,9 @@ def get_prompt(fn: Callable, options: PromptOptions | None = None) -> Prompt:
     arguments = options.get('arguments')
 
     if arguments is None:
-        arguments = _get_arguments_from_fn(fn) or None
+        # A function without parameters declares no arguments ([]), so
+        # prompts/get drops any it is sent.
+        arguments = _get_arguments_from_fn(fn)
 
     return Prompt(fn=fn, name=name, description=description, arguments=arguments)
 
@@ -55,6 +57,8 @@ def _get_arguments_from_fn(fn: Callable) -> list[PromptArgument]:
     sig = inspect.signature(fn)
     args = []
     for param_name, param in sig.parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
         required = param.default is inspect.Parameter.empty
         args.append(PromptArgument(name=param_name, required=required))
     return args

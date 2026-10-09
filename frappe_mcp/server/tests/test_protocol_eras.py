@@ -369,6 +369,36 @@ def test_legacy_ping(mcp):
     assert data['result'] == {}
 
 
+@pytest.mark.parametrize('version', ['2025-11-25', '2025-06-18'])
+def test_legacy_request_accepts_legacy_version_header(mcp, version):
+    status, _ = post(mcp, 'tools/list', {}, {'MCP-Protocol-Version': version})
+    assert status == 200
+
+
+def test_legacy_request_rejects_unknown_version_header(mcp):
+    status, data = post(mcp, 'tools/list', {}, {'MCP-Protocol-Version': '1900-01-01'})
+    assert status == 400
+    assert data['error']['code'] == -32022
+    assert data['error']['data']['requested'] == '1900-01-01'
+
+
+def test_modern_header_without_meta_is_rejected(mcp):
+    status, data = post(mcp, 'tools/list', {}, {'MCP-Protocol-Version': MODERN})
+    assert status == 400
+    assert data['error']['code'] == -32602
+
+
+def test_legacy_initialize_ignores_version_header(mcp):
+    status, data = post(
+        mcp,
+        'initialize',
+        {'protocolVersion': '2025-11-25'},
+        {'MCP-Protocol-Version': '1900-01-01'},
+    )
+    assert status == 200
+    assert data['result']['protocolVersion'] == '2025-11-25'
+
+
 # ---------------------------------------------------------------------------
 # Transport
 # ---------------------------------------------------------------------------

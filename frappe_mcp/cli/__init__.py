@@ -14,8 +14,9 @@ def run(ctx):
 @run.command()
 def version():
     """Print version information"""
-    version = get_version()
-    click.echo(version)
+    from frappe_mcp import __version__
+
+    click.echo(__version__)
 
 
 @run.command()
@@ -52,14 +53,3 @@ def check(app: str | None = None, verbose: bool = False):
 
         if i < len(apps) - 1:
             print()
-
-
-def get_version():
-    from pathlib import Path
-
-    import tomllib
-
-    pyproject_path = Path(__file__).parent.parent.parent / 'pyproject.toml'
-    with open(pyproject_path, 'rb') as f:
-        pyproject = tomllib.load(f)
-    return pyproject['project']['version']

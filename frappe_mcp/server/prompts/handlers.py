@@ -26,7 +26,7 @@ def handle_list_prompts(params, prompt_registry: OrderedDict) -> dict:
         )
         prompt_list.append(prompt)
     result = types.ListPromptsResult(prompts=prompt_list)
-    return result.model_dump(exclude_none=True, by_alias=True)
+    return types.dump(result)
 
 
 def handle_get_prompt(params, prompt_registry: OrderedDict) -> dict:
@@ -38,9 +38,22 @@ def handle_get_prompt(params, prompt_registry: OrderedDict) -> dict:
         raise ValueError(f"Prompt '{name}' not found.")
 
     prompt_info = prompt_registry[name]
-    fn = prompt_info['fn']
+    declared = prompt_info.get('arguments')
+    if declared is not None:
+        missing = [
+            arg['name']
+            for arg in declared
+            if arg.get('required') and arg['name'] not in arguments
+        ]
+        if missing:
+            raise ValueError(
+                f"Missing required arguments for prompt '{name}': {', '.join(missing)}"
+            )
+        # Undeclared arguments are dropped, as for tools.
+        names = {arg['name'] for arg in declared}
+        arguments = {key: value for key, value in arguments.items() if key in names}
 
-    raw_result = fn(**arguments)
+    raw_result = prompt_info['fn'](**arguments)
 
     if isinstance(raw_result, list):
         result = types.GetPromptResult(
@@ -55,4 +68,4 @@ def handle_get_prompt(params, prompt_registry: OrderedDict) -> dict:
             f'got {type(raw_result).__name__}.'
         )
 
-    return result.model_dump(exclude_none=True, by_alias=True)
+    return types.dump(result)
