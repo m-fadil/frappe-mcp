@@ -6,7 +6,22 @@ server](https://modelcontextprotocol.io/specification/2026-07-28/basic/transport
 > [!NOTE]
 >
 > **This is a fork of [frappe/mcp](https://github.com/frappe/mcp)** (upstream
-> `frappe-mcp` 0.1.x). Changes in 0.2.0:
+> `frappe-mcp` 0.1.x).
+>
+> Changes in 0.3.0:
+>
+> - **Transactions**: every request runs in a database savepoint; a failing
+>   tool's writes are rolled back. See [Errors and transactions](#errors-and-transactions).
+> - **Errors**: only `frappe.ValidationError`, `frappe.PermissionError` and
+>   `frappe_mcp.ToolError` messages reach the client; other exceptions go to
+>   the Error Log.
+> - **Per-request tools**: the `@mcp.register()` function may return the tool
+>   registry for the request (thread-safe) instead of assigning
+>   `mcp._tool_registry`.
+> - Tool and prompt arguments are validated, tool results are serialized with
+>   Frappe's JSON encoder, and malformed JSON-RPC requests get proper errors.
+>
+> Changes in 0.2.0:
 >
 > - **Dependencies relaxed** to `Werkzeug>=3.1.3,<4`, `pydantic>=2.11.7,<3`,
 >   `Click>=8.1.8,<9` so that installing it next to Frappe v15 (Werkzeug 3.1.6,
@@ -60,13 +75,13 @@ The PyPI package `frappe-mcp` is upstream; install this fork from Git.
 Using PIP:
 
 ```bash
-pip install "frappe-mcp @ git+https://github.com/m-fadil/frappe-mcp.git@v0.2.0"
+pip install "frappe-mcp @ git+https://github.com/m-fadil/frappe-mcp.git@v0.3.0"
 ```
 
 Using UV:
 
 ```bash
-uv add "frappe-mcp @ git+https://github.com/m-fadil/frappe-mcp.git@v0.2.0"
+uv add "frappe-mcp @ git+https://github.com/m-fadil/frappe-mcp.git@v0.3.0"
 ```
 
 ## Limitations
